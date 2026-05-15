@@ -95,13 +95,28 @@ function initializeSchema(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_transactions_buyer ON transactions(buyer_id);
     CREATE INDEX IF NOT EXISTS idx_transactions_timestamp ON transactions(timestamp);
 
-    CREATE TABLE IF NOT EXISTS access_log (
+    CREATE TABLE IF NOT EXISTS api_requests (
       id TEXT PRIMARY KEY,
-      attestation_id TEXT NOT NULL,
-      buyer_id TEXT NOT NULL,
-      timestamp TEXT NOT NULL DEFAULT (datetime('now')),
-      FOREIGN KEY (attestation_id) REFERENCES attestations(id)
+      method TEXT NOT NULL,
+      path TEXT NOT NULL,
+      ip TEXT NOT NULL,
+      user_agent TEXT,
+      status_code INTEGER,
+      timestamp TEXT NOT NULL DEFAULT (datetime('now'))
     );
+
+    CREATE INDEX IF NOT EXISTS idx_api_requests_timestamp ON api_requests(timestamp);
+    CREATE INDEX IF NOT EXISTS idx_api_requests_ip ON api_requests(ip);
+
+    CREATE TABLE IF NOT EXISTS activity_log (
+      id TEXT PRIMARY KEY,
+      event TEXT NOT NULL,
+      detail TEXT NOT NULL,
+      actor_id TEXT,
+      timestamp TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_activity_log_timestamp ON activity_log(timestamp);
   `);
 }
 

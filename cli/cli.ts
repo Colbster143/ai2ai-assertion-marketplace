@@ -13,6 +13,7 @@ import {
   fundWalletDirectly,
 } from '../src/payments/wallets.js';
 import { isLightningConfigured } from '../src/payments/provider.js';
+import { getUsageReport } from '../src/monitoring/usage.js';
 import { v4 as uuid } from 'uuid';
 
 const program = new Command();
@@ -323,6 +324,60 @@ program
     } catch (err) {
       console.error('Error:', String(err));
     }
+  });
+
+program
+  .command('logs')
+  .description('Show recent activity and usage report')
+  .action(() => {
+    const report = getUsageReport();
+    console.log('');
+    console.log('=== Last 24 Hours ===');
+    console.log(`  API Requests:   ${report.last24Hours.totalRequests}`);
+    console.log(`  Unique IPs:     ${report.last24Hours.uniqueIps}`);
+    console.log(`  Transactions:   ${report.last24Hours.transactions}`);
+    console.log(`  Volume:         ${report.last24Hours.transactionVolume} sats`);
+    console.log(`  New Verifiers:  ${report.last24Hours.newVerifiers}`);
+    console.log(`  New Attestations: ${report.last24Hours.newAttestations}`);
+
+    if (report.last24Hours.topIps.length > 0) {
+      console.log('\n  Top IPs:');
+      report.last24Hours.topIps.forEach((ip) => {
+        console.log(`    ${ip.ip.padEnd(20)} ${ip.count} requests`);
+      });
+    }
+
+    if (report.last24Hours.topEndpoints.length > 0) {
+      console.log('\n  Top Endpoints:');
+      report.last24Hours.topEndpoints.forEach((ep) => {
+        console.log(`    ${ep.path.padEnd(35)} ${ep.count} hits`);
+      });
+    }
+
+    console.log('\n=== All Time ===');
+    console.log(`  Total Requests:    ${report.allTime.totalRequests}`);
+    console.log(`  Total Transactions: ${report.allTime.totalTransactions}`);
+    console.log(`  Total Volume:       ${report.allTime.totalVolume} sats`);
+    console.log(`  Total Attestations: ${report.allTime.totalAttestations}`);
+    console.log(`  Total Verifiers:    ${report.allTime.totalVerifiers}`);
+    console.log(`  Unique Buyers:      ${report.allTime.uniqueBuyers}`);
+
+    if (report.recentActivity.length > 0) {
+      console.log('\n=== Recent Activity ===');
+      report.recentActivity.slice(0, 15).forEach((a) => {
+        const actor = a.actorId ? a.actorId.slice(0, 8) : 'system';
+        console.log(`  [${a.timestamp.slice(11, 19)}] ${a.event.padEnd(24)} ${actor.padEnd(10)} ${a.detail.slice(0, 80)}`);
+      });
+    }
+
+    if (report.recentRequests.length > 0) {
+      console.log('\n=== Recent API Requests ===');
+      report.recentRequests.slice(0, 10).forEach((r) => {
+        console.log(`  [${r.timestamp.slice(11, 19)}] ${r.method.padEnd(6)} ${r.statusCode.toString().padEnd(3)} ${r.ip.padEnd(18)} ${r.path}`);
+      });
+    }
+
+    console.log('');
   });
 
 program.parse();

@@ -38,14 +38,32 @@ import {
   withdrawFunds,
 } from '../payments/wallets.js';
 import { isLightningConfigured } from '../payments/provider.js';
+import { logApiRequest, logActivity, getUsageReport } from '../monitoring/usage.js';
 
 export function createAPI(): express.Express {
   const app = express();
   app.use(cors());
   app.use(express.json());
 
+  app.use((req, res, next) => {
+    res.on('finish', () => {
+      logApiRequest(
+        req.method,
+        req.path,
+        req.ip || req.socket.remoteAddress || 'unknown',
+        req.headers['user-agent'],
+        res.statusCode
+      );
+    });
+    next();
+  });
+
   app.get('/health', (_req, res) => {
     res.json({ status: 'ok', marketplace: 'ai2ai-assertion-marketplace' });
+  });
+
+  app.get('/usage', (_req, res) => {
+    res.json(getUsageReport());
   });
 
   app.get('/stats', (_req, res) => {
@@ -86,6 +104,7 @@ export function createAPI(): express.Express {
         return;
       }
       const attestation = submitAttestation({ ...rest, verifierId });
+      logActivity('attestation_submitted', `${attestation.type}: ${attestation.resultSummary.slice(0, 80)}`, verifierId);
       res.status(201).json(attestation);
     } catch (err) {
       res.status(400).json({ error: String(err) });
@@ -100,6 +119,7 @@ export function createAPI(): express.Express {
         return;
       }
       const result = purchaseAttestation(req.params.id, buyerId);
+      logActivity('attestation_purchased', `Buyer ${buyerId.slice(0, 8)} paid ${result.attestation.price} sats for ${result.attestation.type}`, buyerId);
       res.json(result);
     } catch (err) {
       res.status(400).json({ error: String(err) });
@@ -143,6 +163,7 @@ export function createAPI(): express.Express {
     try {
       const validated = VerifierRegistrationSchema.parse(req.body);
       const verifier = registerVerifier(validated);
+      logActivity('verifier_registered', `${validated.name} registered with ${validated.initialStake} stake`, verifier.id);
       res.status(201).json(verifier);
     } catch (err) {
       res.status(400).json({ error: String(err) });
@@ -291,6 +312,7 @@ export function startAPI(port = 3099): void {
   const app = createAPI();
   app.listen(port, () => {
     console.log(`AI2AI Assertion Marketplace API running on http://localhost:${port}`);
+    console.log(`  GET  /usage                     Usage report and activity feed`);
     console.log(`  GET  /stats                     Marketplace statistics`);
     console.log(`  GET  /attestations?type=&...    Query attestations`);
     console.log(`  POST /attestations              Submit new attestation`);
