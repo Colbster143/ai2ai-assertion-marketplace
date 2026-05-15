@@ -59,12 +59,13 @@
   "scripts": {
     "build": "tsc",
     "dev": "tsx src/index.ts",
-    "start": "node dist/src/index.js",
+    "start": "node dist/src/start.js",
     "mcp": "tsx src/mcp/entry.ts",
     "api": "tsx src/api/rest.ts",
     "cli": "tsx cli/cli.ts",
     "db:init": "tsx cli/cli.ts db-init",
     "db:seed": "tsx cli/cli.ts db-seed",
+    "render-build": "npm install && npm run build",
     "prepublishOnly": "npm run build"
   },
   "dependencies": {
