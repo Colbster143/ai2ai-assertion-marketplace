@@ -1,8 +1,8 @@
 import type { LightningInvoice } from './types.js';
 import { LNBitsClient } from './lnbits.js';
-import { ZBDClient } from './zbd.js';
+import { OpenNodeClient } from './opennode.js';
 
-export type PaymentProvider = 'lnbits' | 'zbd';
+export type PaymentProvider = 'lnbits' | 'opennode';
 
 interface LightningClient {
   createInvoice(amount: number, memo: string, expirySeconds?: number): Promise<LightningInvoice>;
@@ -19,57 +19,54 @@ export function getLightningClient(): LightningClient {
   if (!client) {
     provider = detectProvider();
 
-    if (provider === 'zbd') {
-      const apiKey = process.env.ZBD_API_KEY || '';
-      if (!apiKey) throw new Error('ZBD_API_KEY not set');
-      client = new ZBDAdapter(new ZBDClient(apiKey));
-    } else if (provider === 'lnbits') {
+    if (provider === 'opennode') {
+      const apiKey = process.env.OPENNODE_API_KEY || '';
+      if (!apiKey) throw new Error('OPENNODE_API_KEY not set');
+      client = new OpenNodeAdapter(new OpenNodeClient(apiKey));
+    } else {
       const baseUrl = process.env.LNBITS_URL || 'https://legend.lnbits.com';
       const adminKey = process.env.LNBITS_ADMIN_KEY || process.env.LNBITS_API_KEY || '';
       if (!adminKey) throw new Error('LNBITS_ADMIN_KEY or LNBITS_API_KEY not set');
       client = new LNBitsAdapter(new LNBitsClient(baseUrl, adminKey));
-    } else {
-      throw new Error('No Lightning provider configured. Set ZBD_API_KEY or LNBITS_ADMIN_KEY.');
     }
   }
   return client;
 }
 
 function detectProvider(): PaymentProvider {
-  if (process.env.ZBD_API_KEY) return 'zbd';
-  if (process.env.LNBITS_ADMIN_KEY || process.env.LNBITS_API_KEY) return 'lnbits';
-  return 'zbd';
+  if (process.env.OPENNODE_API_KEY) return 'opennode';
+  return 'lnbits';
 }
 
 export function isLightningConfigured(): boolean {
-  return !!(process.env.ZBD_API_KEY || process.env.LNBITS_ADMIN_KEY || process.env.LNBITS_API_KEY);
+  return !!(process.env.OPENNODE_API_KEY || process.env.LNBITS_ADMIN_KEY || process.env.LNBITS_API_KEY);
 }
 
 export function getPaymentProvider(): PaymentProvider | null {
   return provider;
 }
 
-class ZBDAdapter implements LightningClient {
-  constructor(private zbd: ZBDClient) {}
+class OpenNodeAdapter implements LightningClient {
+  constructor(private on: OpenNodeClient) {}
 
   async createInvoice(amount: number, memo: string, expirySeconds?: number): Promise<LightningInvoice> {
-    return this.zbd.createInvoice(amount, memo, expirySeconds);
+    return this.on.createInvoice(amount, memo, expirySeconds);
   }
 
   async checkInvoice(paymentHash: string): Promise<boolean> {
-    return this.zbd.checkInvoice(paymentHash);
+    return this.on.checkInvoice(paymentHash);
   }
 
   async payInvoice(paymentRequest: string, amount: number, description: string): Promise<{ paymentHash: string }> {
-    return this.zbd.payInvoice(paymentRequest, amount, description);
+    return this.on.payInvoice(paymentRequest, amount, description);
   }
 
   async decodeInvoice(paymentRequest: string): Promise<{ amount: number; memo: string }> {
-    return this.zbd.decodeInvoice(paymentRequest);
+    return this.on.decodeInvoice(paymentRequest);
   }
 
   async getBalance(): Promise<number> {
-    return this.zbd.getBalance();
+    return this.on.getBalance();
   }
 }
 
