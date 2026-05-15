@@ -20,7 +20,7 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/colbyeggleston/ai2ai-assertion-marketplace"
+    "url": "https://github.com/Colbster143/ai2ai-assertion-marketplace"
   },
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
