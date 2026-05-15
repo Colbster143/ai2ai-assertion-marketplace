@@ -1,0 +1,87 @@
+{
+  "name": "ai2ai-assertion-marketplace",
+  "version": "1.0.0",
+  "description": "AI-to-AI Assertion Marketplace — buy and sell verified attestations between AI agents to eliminate redundant compute",
+  "license": "MIT",
+  "author": "Colby Eggleston",
+  "keywords": [
+    "ai",
+    "agent",
+    "attestation",
+    "verification",
+    "marketplace",
+    "mcp",
+    "model-context-protocol",
+    "deepfake-detection",
+    "identity-verification",
+    "fact-check",
+    "decentralized",
+    "compute-efficiency"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/colbyeggleston/ai2ai-assertion-marketplace"
+  },
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "type": "module",
+  "exports": {
+    ".": {
+      "import": "./dist/src/index.js",
+      "types": "./dist/src/index.d.ts"
+    },
+    "./registry": {
+      "import": "./dist/src/registry/attestations.js",
+      "types": "./dist/src/registry/attestations.d.ts"
+    },
+    "./verifiers": {
+      "import": "./dist/src/registry/verifiers.js",
+      "types": "./dist/src/registry/verifiers.d.ts"
+    },
+    "./marketplace": {
+      "import": "./dist/src/marketplace/marketplace.js",
+      "types": "./dist/src/marketplace/marketplace.d.ts"
+    },
+    "./mcp": {
+      "import": "./dist/src/mcp/entry.js",
+      "types": "./dist/src/mcp/server.d.ts"
+    },
+    "./api": {
+      "import": "./dist/src/api/rest.js",
+      "types": "./dist/src/api/rest.d.ts"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/index.ts",
+    "start": "node dist/src/index.js",
+    "mcp": "tsx src/mcp/entry.ts",
+    "api": "tsx src/api/rest.ts",
+    "cli": "tsx cli/cli.ts",
+    "db:init": "tsx cli/cli.ts db-init",
+    "db:seed": "tsx cli/cli.ts db-seed",
+    "prepublishOnly": "npm run build"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.0",
+    "better-sqlite3": "^11.7.0",
+    "commander": "^13.1.0",
+    "cors": "^2.8.5",
+    "express": "^5.1.0",
+    "uuid": "^11.1.0",
+    "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.12",
+    "@types/cors": "^2.8.17",
+    "@types/express": "^5.0.0",
+    "@types/uuid": "^10.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0"
+  }
+}
