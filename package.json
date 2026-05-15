@@ -1,6 +1,6 @@
 {
   "name": "ai2ai-assertion-marketplace",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "AI-to-AI Assertion Marketplace — buy and sell verified attestations between AI agents to eliminate redundant compute",
   "license": "MIT",
   "author": "Colby Eggleston",
