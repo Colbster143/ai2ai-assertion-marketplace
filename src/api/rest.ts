@@ -101,8 +101,13 @@ export function createAPI(): express.Express {
     autoSeedDailyIfNeeded();
     const stats = getMarketplaceStats();
     const usage = getUsageReport();
+    const openBounties = listOpenBounties(undefined, 100);
     res.setHeader('Content-Type', 'text/html');
-    res.send(renderDashboard(stats as unknown as Record<string, unknown>, usage as unknown as Record<string, unknown>));
+    res.send(renderDashboard(
+      stats as unknown as Record<string, unknown>,
+      usage as unknown as Record<string, unknown>,
+      openBounties.length
+    ));
   });
 
   app.get('/openapi.json', (_req, res) => {
@@ -110,7 +115,7 @@ export function createAPI(): express.Express {
   });
 
   app.get('/health', (_req, res) => {
-    res.json({ status: 'ok', marketplace: 'factorium-attestation-marketplace' });
+    res.json({ status: 'ok', protocol: 'factorium', version: '1.0.6' });
   });
 
   app.get('/usage', (_req, res) => {

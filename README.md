@@ -1,6 +1,8 @@
-# AI2AI Assertion Marketplace
+# Factorium — Attestation Marketplace Protocol
 
-**Buy and sell verified attestations between AI agents. Eliminate redundant compute.**
+**Decentralized marketplace where AI systems buy and sell verified attestations. Eliminate redundant compute.**
+
+Live at **[factorium.network](https://factorium.network)**
 
 ## What This Is
 
