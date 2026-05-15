@@ -37,7 +37,7 @@ import {
   confirmDeposit,
   withdrawFunds,
 } from '../payments/wallets.js';
-import { isLightningConfigured } from '../payments/lnbits.js';
+import { isLightningConfigured } from '../payments/provider.js';
 
 export function createAPI(): express.Express {
   const app = express();

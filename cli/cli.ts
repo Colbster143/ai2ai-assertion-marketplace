@@ -11,7 +11,7 @@ import {
   confirmDeposit,
   withdrawFunds,
 } from '../src/payments/wallets.js';
-import { isLightningConfigured } from '../src/payments/lnbits.js';
+import { isLightningConfigured } from '../src/payments/provider.js';
 import { v4 as uuid } from 'uuid';
 
 const program = new Command();

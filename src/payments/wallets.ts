@@ -1,6 +1,6 @@
 import { v4 as uuid } from 'uuid';
 import { getDatabase } from '../registry/database.js';
-import { getLNBitsClient, isLightningConfigured } from './lnbits.js';
+import { getLightningClient, isLightningConfigured } from './provider.js';
 import type { LightningInvoice, InternalWallet, PaymentResult } from './types.js';
 
 interface WalletRow {
@@ -46,7 +46,7 @@ function initPaymentTables(): void {
     CREATE TABLE IF NOT EXISTS payment_wallets (
       id TEXT PRIMARY KEY,
       owner_id TEXT NOT NULL UNIQUE,
-      owner_type TEXT NOT NULL CHECK(owner_type IN ('verifier', 'buyer')),
+      owner_type TEXT NOT NULL CHECK(owner_type IN ('verifier', 'buyer', 'marketplace')),
       balance INTEGER NOT NULL DEFAULT 0,
       lnbits_wallet_id TEXT,
       lnbits_admin_key TEXT,
@@ -70,6 +70,9 @@ function initPaymentTables(): void {
     CREATE INDEX IF NOT EXISTS idx_payment_invoices_hash ON payment_invoices(payment_hash);
     CREATE INDEX IF NOT EXISTS idx_payment_invoices_status ON payment_invoices(status);
     CREATE INDEX IF NOT EXISTS idx_payment_wallets_owner ON payment_wallets(owner_id);
+
+    INSERT OR IGNORE INTO payment_wallets (id, owner_id, owner_type, balance, created_at)
+    VALUES ('marketplace', 'marketplace', 'marketplace', 0, datetime('now'));
   `);
 }
 
@@ -109,33 +112,6 @@ export function getOrCreateWalletSync(ownerId: string, ownerType: 'verifier' | '
   };
 }
 
-export async function provisionLNBitsWallet(ownerId: string): Promise<InternalWallet | null> {
-  if (!isLightningConfigured()) return null;
-
-  const wallet = getWallet(ownerId);
-  if (!wallet) return null;
-  if (wallet.lnbitsWalletId) return wallet;
-
-  try {
-    const lnbits = getLNBitsClient();
-    const lnWallet = await lnbits.createInternalWallet(
-      `${wallet.ownerType}-${ownerId.slice(0, 8)}`
-    );
-
-    const db = getDatabase();
-    db.prepare(`
-      UPDATE payment_wallets
-      SET lnbits_wallet_id = ?, lnbits_admin_key = ?, lnbits_invoice_key = ?
-      WHERE owner_id = ?
-    `).run(lnWallet.id, lnWallet.adminKey, lnWallet.invoiceKey, ownerId);
-
-    return getWallet(ownerId);
-  } catch (err) {
-    console.error('Failed to provision LNBits wallet:', err);
-    return null;
-  }
-}
-
 export function getWallet(ownerId: string): InternalWallet | null {
   initPaymentTables();
   const db = getDatabase();
@@ -159,14 +135,13 @@ export async function createDepositInvoice(
   initPaymentTables();
 
   if (!isLightningConfigured()) {
-    throw new Error('Lightning payments not configured. Set LNBITS_ADMIN_KEY.');
+    throw new Error('Lightning payments not configured. Set ZBD_API_KEY or LNBITS_ADMIN_KEY.');
   }
 
-  const lnbits = getLNBitsClient();
-  const invoice = await lnbits.createInvoice(amount, memo);
+  const ln = getLightningClient();
+  const invoice = await ln.createInvoice(amount, memo);
 
-  const wallet = getWallet(ownerId);
-  const walletId = wallet?.id || 'external';
+  getOrCreateWalletSync(ownerId, ownerType);
   const db = getDatabase();
 
   db.prepare(`
@@ -175,7 +150,7 @@ export async function createDepositInvoice(
     VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?)
   `).run(
     uuid(), invoice.paymentHash, invoice.paymentRequest, amount, memo,
-    walletId, JSON.stringify({ ownerId, ownerType }), new Date().toISOString()
+    ownerId, JSON.stringify({ ownerId, ownerType }), new Date().toISOString()
   );
 
   return invoice;
@@ -195,11 +170,9 @@ export async function confirmDeposit(paymentHash: string): Promise<PaymentResult
 
   if (!isLightningConfigured()) {
     const metadata = JSON.parse(invRow.metadata);
-    const wallet = getOrCreateWalletSync(metadata.ownerId, metadata.ownerType);
-
     db.prepare(`
-      UPDATE payment_wallets SET balance = balance + ? WHERE id = ?
-    `).run(invRow.amount, wallet.id);
+      UPDATE payment_wallets SET balance = balance + ? WHERE owner_id = ?
+    `).run(invRow.amount, metadata.ownerId);
 
     db.prepare(`
       UPDATE payment_invoices SET status = 'paid', paid_at = datetime('now')
@@ -209,77 +182,33 @@ export async function confirmDeposit(paymentHash: string): Promise<PaymentResult
     return {
       success: true,
       transactionId: uuid(),
-      newBalance: wallet.balance + invRow.amount,
+      newBalance: getBalance(metadata.ownerId),
     };
   }
 
-  const lnbits = getLNBitsClient();
-  const paid = await lnbits.checkInvoice(paymentHash);
+  const ln = getLightningClient();
+  const paid = await ln.checkInvoice(paymentHash);
 
   if (!paid) {
-    return { success: false, error: 'Invoice not yet paid' };
+    return { success: false, error: 'Invoice not yet paid. Try again in a few seconds.' };
   }
 
   const metadata = JSON.parse(invRow.metadata);
-  const wallet = getOrCreateWalletSync(metadata.ownerId, metadata.ownerType);
+  getOrCreateWalletSync(metadata.ownerId, metadata.ownerType);
 
   db.prepare(`
-    UPDATE payment_wallets SET balance = balance + ? WHERE id = ?
-  `).run(invRow.amount, wallet.id);
+    UPDATE payment_wallets SET balance = balance + ? WHERE owner_id = ?
+  `).run(invRow.amount, metadata.ownerId);
 
   db.prepare(`
     UPDATE payment_invoices SET status = 'paid', paid_at = datetime('now')
     WHERE payment_hash = ?
   `).run(paymentHash);
 
-  const newBalance = (getWallet(metadata.ownerId)?.balance ?? 0);
-
   return {
     success: true,
     transactionId: uuid(),
-    newBalance,
-  };
-}
-
-export async function transferInternally(
-  fromOwnerId: string,
-  toOwnerId: string,
-  amount: number,
-  description: string
-): Promise<PaymentResult> {
-  initPaymentTables();
-  const db = getDatabase();
-
-  const fromWallet = getWallet(fromOwnerId);
-  if (!fromWallet) {
-    return { success: false, error: `Sender wallet not found: ${fromOwnerId}` };
-  }
-
-  if (fromWallet.balance < amount) {
-    return {
-      success: false,
-      error: `Insufficient balance. Have ${fromWallet.balance}, need ${amount}.`,
-    };
-  }
-
-  const toWallet = getOrCreateWalletSync(toOwnerId, 'verifier');
-
-  db.prepare('UPDATE payment_wallets SET balance = balance - ? WHERE owner_id = ?').run(
-    amount,
-    fromOwnerId
-  );
-
-  db.prepare('UPDATE payment_wallets SET balance = balance + ? WHERE owner_id = ?').run(
-    amount,
-    toOwnerId
-  );
-
-  const newBalance = (getWallet(fromOwnerId)?.balance ?? 0);
-
-  return {
-    success: true,
-    transactionId: uuid(),
-    newBalance,
+    newBalance: getBalance(metadata.ownerId),
   };
 }
 
@@ -303,7 +232,7 @@ export function transferInternal(
     };
   }
 
-  const toWallet = getOrCreateWalletSync(toOwnerId, 'verifier');
+  getOrCreateWalletSync(toOwnerId, 'verifier');
 
   const txn = db.transaction(() => {
     db.prepare('UPDATE payment_wallets SET balance = balance - ? WHERE owner_id = ?').run(
@@ -318,12 +247,10 @@ export function transferInternal(
 
   txn();
 
-  const newBalance = getWallet(fromOwnerId)?.balance ?? 0;
-
   return {
     success: true,
     transactionId: uuid(),
-    newBalance,
+    newBalance: getBalance(fromOwnerId),
   };
 }
 
@@ -333,7 +260,7 @@ export async function withdrawFunds(
   expectedAmount: number
 ): Promise<PaymentResult> {
   if (!isLightningConfigured()) {
-    return { success: false, error: 'Lightning payments not configured.' };
+    return { success: false, error: 'Lightning payments not configured. Set ZBD_API_KEY or LNBITS_ADMIN_KEY.' };
   }
 
   const wallet = getWallet(ownerId);
@@ -348,10 +275,10 @@ export async function withdrawFunds(
     };
   }
 
-  const lnbits = getLNBitsClient();
+  const ln = getLightningClient();
 
   try {
-    const decoded = await lnbits.decodeInvoice(invoice);
+    const decoded = await ln.decodeInvoice(invoice);
     if (decoded.amount !== expectedAmount) {
       return {
         success: false,
@@ -359,7 +286,7 @@ export async function withdrawFunds(
       };
     }
 
-    await lnbits.payInvoice(invoice);
+    await ln.payInvoice(invoice, expectedAmount, `ai2ai withdrawal for ${ownerId.slice(0, 8)}`);
 
     const db = getDatabase();
     db.prepare('UPDATE payment_wallets SET balance = balance - ? WHERE owner_id = ?').run(
@@ -370,7 +297,7 @@ export async function withdrawFunds(
     return {
       success: true,
       transactionId: uuid(),
-      newBalance: (getWallet(ownerId)?.balance ?? 0),
+      newBalance: getBalance(ownerId),
     };
   } catch (err) {
     return {
@@ -378,38 +305,4 @@ export async function withdrawFunds(
       error: `Withdrawal failed: ${err instanceof Error ? err.message : 'Unknown error'}`,
     };
   }
-}
-
-export async function syncWalletBalances(): Promise<{ synced: number; errors: number }> {
-  if (!isLightningConfigured()) {
-    return { synced: 0, errors: 0 };
-  }
-
-  const db = getDatabase();
-  const wallets = db
-    .prepare("SELECT * FROM payment_wallets WHERE lnbits_wallet_id IS NOT NULL")
-    .all() as WalletRow[];
-
-  let synced = 0;
-  let errors = 0;
-
-  for (const row of wallets) {
-    try {
-      const lnbits = new (await import('./lnbits.js')).LNBitsClient(
-        process.env.LNBITS_URL || 'https://legend.lnbits.com',
-        row.lnbits_invoice_key || ''
-      );
-      const balance = await lnbits.getWalletBalance();
-
-      db.prepare('UPDATE payment_wallets SET balance = ? WHERE id = ?').run(
-        balance,
-        row.id
-      );
-      synced++;
-    } catch {
-      errors++;
-    }
-  }
-
-  return { synced, errors };
 }
