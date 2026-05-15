@@ -10,6 +10,7 @@ import {
   createDepositInvoice,
   confirmDeposit,
   withdrawFunds,
+  fundWalletDirectly,
 } from '../src/payments/wallets.js';
 import { isLightningConfigured } from '../src/payments/provider.js';
 import { v4 as uuid } from 'uuid';
@@ -237,6 +238,19 @@ program
   });
 
 // --- Wallet ---
+
+program
+  .command('fund <ownerId> <amount>')
+  .description('Credit a wallet directly (no Lightning required)')
+  .option('--type <type>', 'Owner type (verifier/buyer)', 'buyer')
+  .action((ownerId, amount, opts) => {
+    const result = fundWalletDirectly(ownerId, opts.type as 'verifier' | 'buyer', parseInt(amount));
+    if (result.success) {
+      console.log(`Credited ${amount} sats to ${ownerId}. New balance: ${result.newBalance} sats.`);
+    } else {
+      console.error('Failed:', result.error);
+    }
+  });
 
 program
   .command('balance <ownerId>')

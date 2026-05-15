@@ -126,6 +126,24 @@ export function getBalance(ownerId: string): number {
   return wallet?.balance ?? 0;
 }
 
+export function fundWalletDirectly(ownerId: string, ownerType: 'verifier' | 'buyer', amount: number): PaymentResult {
+  initPaymentTables();
+  const db = getDatabase();
+
+  const wallet = getOrCreateWalletSync(ownerId, ownerType);
+
+  db.prepare('UPDATE payment_wallets SET balance = balance + ? WHERE owner_id = ?').run(
+    amount,
+    ownerId
+  );
+
+  return {
+    success: true,
+    transactionId: uuid(),
+    newBalance: (getWallet(ownerId)?.balance ?? 0),
+  };
+}
+
 export async function createDepositInvoice(
   ownerId: string,
   ownerType: 'verifier' | 'buyer',
@@ -135,7 +153,9 @@ export async function createDepositInvoice(
   initPaymentTables();
 
   if (!isLightningConfigured()) {
-    throw new Error('Lightning payments not configured. Set ZBD_API_KEY or LNBITS_ADMIN_KEY.');
+    throw new Error(
+      'Lightning not configured. Fund wallets manually via CLI: npx tsx cli/cli.ts fund <ownerId> <amount>'
+    );
   }
 
   const ln = getLightningClient();
