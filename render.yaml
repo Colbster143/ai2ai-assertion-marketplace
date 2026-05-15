@@ -3,7 +3,7 @@ services:
     name: ai2ai-marketplace
     env: node
     buildCommand: npm run render-build
-    startCommand: npm start
+    startCommand: node dist/src/start.js
     envVars:
       - key: PORT
         value: "10000"
