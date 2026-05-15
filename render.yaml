@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: ai2ai-marketplace
+    env: node
+    buildCommand: npm install && npm run build
+    startCommand: node dist/src/start.js
+    envVars:
+      - key: PORT
+        value: "10000"
+      - key: NODE_VERSION
+        value: "20.0.0"
