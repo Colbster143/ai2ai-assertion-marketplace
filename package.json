@@ -22,7 +22,7 @@
     "type": "git",
     "url": "https://github.com/Colbster143/ai2ai-assertion-marketplace"
   },
-  "main": "dist/index.js",
+  "main": "dist/src/start.js",
   "types": "dist/index.d.ts",
   "type": "module",
   "exports": {
