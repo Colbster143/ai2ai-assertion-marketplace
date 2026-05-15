@@ -30,6 +30,14 @@ import {
   AttestationQuerySchema,
   DisputeSchema,
 } from '../types/index.js';
+import {
+  getOrCreateWallet,
+  getWallet,
+  createDepositInvoice,
+  confirmDeposit,
+  withdrawFunds,
+} from '../payments/wallets.js';
+import { isLightningConfigured } from '../payments/lnbits.js';
 
 export function createAPI(): express.Express {
   const app = express();
@@ -211,6 +219,71 @@ export function createAPI(): express.Express {
     res.json({ subject, hash: hashSubject(subject) });
   });
 
+  // --- Payments / Lightning ---
+
+  app.get('/wallets/:ownerId', (req, res) => {
+    const wallet = getWallet(req.params.ownerId);
+    if (!wallet) {
+      getOrCreateWallet(req.params.ownerId, 'buyer');
+      res.json({ ownerId: req.params.ownerId, balance: 0, lightningConfigured: isLightningConfigured() });
+      return;
+    }
+    res.json({
+      ownerId: wallet.ownerId,
+      ownerType: wallet.ownerType,
+      balance: wallet.balance,
+      lightningConfigured: isLightningConfigured(),
+      hasLNBitsWallet: !!wallet.lnbitsWalletId,
+    });
+  });
+
+  app.post('/wallets/:ownerId/deposit', async (req, res) => {
+    try {
+      const { amount, memo, ownerType } = req.body;
+      if (!amount || !memo) {
+        res.status(400).json({ error: 'amount and memo required' });
+        return;
+      }
+      const invoice = await createDepositInvoice(
+        req.params.ownerId,
+        ownerType || 'buyer',
+        amount,
+        memo
+      );
+      res.json({ invoice, instructions: 'Pay this BOLT11 invoice, then POST /wallets/deposit/confirm' });
+    } catch (err) {
+      res.status(400).json({ error: String(err) });
+    }
+  });
+
+  app.post('/wallets/deposit/confirm', async (req, res) => {
+    try {
+      const { paymentHash } = req.body;
+      if (!paymentHash) {
+        res.status(400).json({ error: 'paymentHash required' });
+        return;
+      }
+      const result = await confirmDeposit(paymentHash);
+      res.json(result);
+    } catch (err) {
+      res.status(400).json({ error: String(err) });
+    }
+  });
+
+  app.post('/wallets/:ownerId/withdraw', async (req, res) => {
+    try {
+      const { invoice, amount } = req.body;
+      if (!invoice || !amount) {
+        res.status(400).json({ error: 'invoice and amount required' });
+        return;
+      }
+      const result = await withdrawFunds(req.params.ownerId, invoice, amount);
+      res.json(result);
+    } catch (err) {
+      res.status(400).json({ error: String(err) });
+    }
+  });
+
   return app;
 }
 
@@ -230,5 +303,9 @@ export function startAPI(port = 3099): void {
     console.log(`  POST /verifiers/:id/stake       Add stake`);
     console.log(`  POST /verifiers/:id/slash       Slash verifier`);
     console.log(`  GET  /transactions              Recent transactions`);
+    console.log(`  GET  /wallets/:ownerId          Check wallet balance`);
+    console.log(`  POST /wallets/:ownerId/deposit  Create Lightning deposit invoice`);
+    console.log(`  POST /wallets/deposit/confirm   Confirm deposit payment`);
+    console.log(`  POST /wallets/:ownerId/withdraw Withdraw via Lightning`);
   });
 }

@@ -29,6 +29,14 @@ import {
   DisputeSchema,
 } from '../types/index.js';
 import type { AttestationType } from '../types/index.js';
+import {
+  getOrCreateWallet,
+  getWallet,
+  createDepositInvoice,
+  confirmDeposit,
+  withdrawFunds,
+} from '../payments/wallets.js';
+import { isLightningConfigured } from '../payments/lnbits.js';
 
 const TOOLS: Tool[] = [
   {
@@ -220,6 +228,86 @@ const TOOLS: Tool[] = [
       properties: {},
     },
   },
+  {
+    name: 'create_deposit_invoice',
+    description:
+      'Create a Lightning Network invoice to deposit funds into your marketplace wallet. Returns a Lightning invoice (BOLT11) that you pay with any Lightning wallet. Funds appear in your balance after payment is confirmed.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        ownerId: {
+          type: 'string',
+          description: 'Your verifier or buyer ID',
+        },
+        ownerType: {
+          type: 'string',
+          description: "'verifier' or 'buyer'",
+        },
+        amount: {
+          type: 'number',
+          description: 'Amount in satoshis to deposit',
+        },
+        memo: {
+          type: 'string',
+          description: 'Description for the deposit',
+        },
+      },
+      required: ['ownerId', 'ownerType', 'amount', 'memo'],
+    },
+  },
+  {
+    name: 'confirm_deposit',
+    description:
+      'Check if a deposit invoice has been paid and credit the funds to your balance.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        paymentHash: {
+          type: 'string',
+          description: 'The payment hash from create_deposit_invoice',
+        },
+      },
+      required: ['paymentHash'],
+    },
+  },
+  {
+    name: 'check_balance',
+    description:
+      'Check your wallet balance in the marketplace. Returns available sats balance.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        ownerId: {
+          type: 'string',
+          description: 'Your verifier or buyer ID',
+        },
+      },
+      required: ['ownerId'],
+    },
+  },
+  {
+    name: 'withdraw_funds',
+    description:
+      'Withdraw your earnings from the marketplace to an external Lightning wallet. Provide a Lightning invoice (BOLT11) for the amount you want to withdraw.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        ownerId: {
+          type: 'string',
+          description: 'Your verifier or buyer ID',
+        },
+        invoice: {
+          type: 'string',
+          description: 'A Lightning Network invoice (BOLT11) from your wallet for the withdrawal amount',
+        },
+        amount: {
+          type: 'number',
+          description: 'Amount in satoshis to withdraw (must match the invoice)',
+        },
+      },
+      required: ['ownerId', 'invoice', 'amount'],
+    },
+  },
 ];
 
 export async function startMCPServer(): Promise<void> {
@@ -388,6 +476,95 @@ export async function startMCPServer(): Promise<void> {
               {
                 type: 'text',
                 text: JSON.stringify(stats, null, 2),
+              },
+            ],
+          };
+        }
+
+        case 'create_deposit_invoice': {
+          const { ownerId, ownerType, amount, memo } = args as {
+            ownerId: string;
+            ownerType: 'verifier' | 'buyer';
+            amount: number;
+            memo: string;
+          };
+          const invoice = await createDepositInvoice(ownerId, ownerType, amount, memo);
+          return {
+            content: [
+              {
+                type: 'text',
+                text: JSON.stringify(
+                  {
+                    message: `Lightning invoice created for ${amount} sats. Pay this invoice to deposit funds.`,
+                    invoice,
+                    instructions: 'Pay this BOLT11 invoice with any Lightning wallet, then call confirm_deposit with the payment_hash.',
+                  },
+                  null,
+                  2
+                ),
+              },
+            ],
+          };
+        }
+
+        case 'confirm_deposit': {
+          const { paymentHash } = args as { paymentHash: string };
+          const result = await confirmDeposit(paymentHash);
+          return {
+            content: [
+              {
+                type: 'text',
+                text: JSON.stringify(result, null, 2),
+              },
+            ],
+          };
+        }
+
+        case 'check_balance': {
+          const { ownerId } = args as { ownerId: string };
+          const wallet = getWallet(ownerId);
+          if (!wallet) {
+            getOrCreateWallet(ownerId, 'buyer');
+            return {
+              content: [
+                {
+                  type: 'text',
+                  text: JSON.stringify({ ownerId, balance: 0, lightningConfigured: isLightningConfigured() }, null, 2),
+                },
+              ],
+            };
+          }
+          return {
+            content: [
+              {
+                type: 'text',
+                text: JSON.stringify(
+                  {
+                    ownerId,
+                    balance: wallet.balance,
+                    lightningConfigured: isLightningConfigured(),
+                    hasLNBitsWallet: !!wallet.lnbitsWalletId,
+                  },
+                  null,
+                  2
+                ),
+              },
+            ],
+          };
+        }
+
+        case 'withdraw_funds': {
+          const { ownerId, invoice, amount } = args as {
+            ownerId: string;
+            invoice: string;
+            amount: number;
+          };
+          const result = await withdrawFunds(ownerId, invoice, amount);
+          return {
+            content: [
+              {
+                type: 'text',
+                text: JSON.stringify(result, null, 2),
               },
             ],
           };

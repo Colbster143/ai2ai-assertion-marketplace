@@ -1,5 +1,6 @@
 import { v4 as uuid } from 'uuid';
 import { getDatabase } from './database.js';
+import { getOrCreateWallet } from '../payments/wallets.js';
 import type { Verifier, StakingEvent } from '../types/index.js';
 
 interface VerifierRow {
@@ -49,6 +50,8 @@ export function registerVerifier(params: {
   `).run(id, params.name, params.endpoint, params.publicKey, params.initialStake, now);
 
   logStakingEvent(id, params.initialStake, 'stake', 'Initial verifier stake');
+
+  getOrCreateWallet(id, 'verifier');
 
   return getVerifier(id)!;
 }

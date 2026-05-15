@@ -2,8 +2,16 @@
 import { Command } from 'commander';
 import { getDatabase, resetDatabase } from '../src/registry/database.js';
 import { registerVerifier, listVerifiers, getTopVerifiers } from '../src/registry/verifiers.js';
-import { submitAttestation, queryAttestations, getAttestation } from '../src/registry/attestations.js';
+import { submitAttestation, queryAttestations, getAttestation, purchaseAttestation } from '../src/registry/attestations.js';
 import { getMarketplaceStats } from '../src/marketplace/marketplace.js';
+import {
+  getOrCreateWallet,
+  getWallet,
+  createDepositInvoice,
+  confirmDeposit,
+  withdrawFunds,
+} from '../src/payments/wallets.js';
+import { isLightningConfigured } from '../src/payments/lnbits.js';
 import { v4 as uuid } from 'uuid';
 
 const program = new Command();
@@ -226,6 +234,81 @@ program
       return;
     }
     console.log(JSON.stringify(a, null, 2));
+  });
+
+// --- Wallet ---
+
+program
+  .command('balance <ownerId>')
+  .description('Check wallet balance')
+  .action((ownerId) => {
+    const wallet = getWallet(ownerId);
+    if (!wallet) {
+      const newWallet = getOrCreateWallet(ownerId, 'buyer');
+      console.log(`Wallet created. Balance: ${newWallet.balance} sats`);
+      return;
+    }
+    console.log(`Owner: ${wallet.ownerId}`);
+    console.log(`Type: ${wallet.ownerType}`);
+    console.log(`Balance: ${wallet.balance} sats`);
+    console.log(`Lightning configured: ${isLightningConfigured()}`);
+    console.log(`LNBits wallet: ${wallet.lnbitsWalletId || 'internal-only'}`);
+  });
+
+program
+  .command('deposit <ownerId> <amount>')
+  .description('Create a Lightning deposit invoice')
+  .option('--memo <memo>', 'Payment description', 'Marketplace deposit')
+  .option('--type <type>', 'Owner type (verifier/buyer)', 'buyer')
+  .action(async (ownerId, amount, opts) => {
+    try {
+      const invoice = await createDepositInvoice(
+        ownerId,
+        opts.type as 'verifier' | 'buyer',
+        parseInt(amount),
+        opts.memo
+      );
+      console.log(`Lightning Invoice (${amount} sats):`);
+      console.log(`  Payment Hash: ${invoice.paymentHash}`);
+      console.log(`  BOLT11: ${invoice.paymentRequest}`);
+      console.log(`  Expires: ${invoice.expiresAt}`);
+      console.log(`\nPay this invoice, then run:`);
+      console.log(`  npx tsx cli/cli.ts confirm-deposit ${invoice.paymentHash}`);
+    } catch (err) {
+      console.error('Error:', String(err));
+    }
+  });
+
+program
+  .command('confirm-deposit <paymentHash>')
+  .description('Confirm a Lightning deposit was paid')
+  .action(async (paymentHash) => {
+    const result = await confirmDeposit(paymentHash);
+    console.log(JSON.stringify(result, null, 2));
+  });
+
+program
+  .command('withdraw <ownerId> <invoice> <amount>')
+  .description('Withdraw funds via Lightning')
+  .action(async (ownerId, invoice, amount) => {
+    try {
+      const result = await withdrawFunds(ownerId, invoice, parseInt(amount));
+      console.log(JSON.stringify(result, null, 2));
+    } catch (err) {
+      console.error('Error:', String(err));
+    }
+  });
+
+program
+  .command('buy <attestationId> <buyerId>')
+  .description('Purchase an attestation')
+  .action((attestationId, buyerId) => {
+    try {
+      const result = purchaseAttestation(attestationId, buyerId);
+      console.log(JSON.stringify(result, null, 2));
+    } catch (err) {
+      console.error('Error:', String(err));
+    }
   });
 
 program.parse();

@@ -1,6 +1,10 @@
 import { v4 as uuid } from 'uuid';
 import { createHash } from 'crypto';
 import { getDatabase } from './database.js';
+import {
+  getOrCreateWallet,
+  transferInternal,
+} from '../payments/wallets.js';
 import type {
   Attestation,
   AttestationQuery,
@@ -213,9 +217,31 @@ export function purchaseAttestation(
     throw new Error(`Attestation has expired: ${attestationId}`);
   }
 
+  const priceInSats = attestation.price;
+
+  const buyerWallet = getOrCreateWallet(buyerId, 'buyer');
+
+  if (buyerWallet.balance < priceInSats) {
+    throw new Error(
+      `Insufficient balance. You have ${buyerWallet.balance} sats, need ${priceInSats} sats. ` +
+      `Deposit via create_deposit_invoice tool.`
+    );
+  }
+
+  const marketplaceFee = Math.round(priceInSats * 0.10);
+  const verifierPayout = priceInSats - marketplaceFee;
+
+  const feeTransfer = transferInternal(buyerId, 'marketplace', marketplaceFee);
+  if (!feeTransfer.success) {
+    throw new Error(`Fee transfer failed: ${feeTransfer.error}`);
+  }
+
+  const payoutTransfer = transferInternal(buyerId, attestation.verifierId, verifierPayout);
+  if (!payoutTransfer.success) {
+    throw new Error(`Payout transfer failed: ${payoutTransfer.error}`);
+  }
+
   const transactionId = uuid();
-  const marketplaceFee = attestation.price * 0.10;
-  const verifierPayout = attestation.price - marketplaceFee;
   const now = new Date().toISOString();
 
   db.prepare(`
@@ -224,7 +250,7 @@ export function purchaseAttestation(
     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     transactionId, attestationId, buyerId, attestation.verifierId,
-    attestation.price, marketplaceFee, verifierPayout, now
+    priceInSats, marketplaceFee, verifierPayout, now
   );
 
   db.prepare(`
